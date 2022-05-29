@@ -43,15 +43,7 @@ fn str2ts(t: &str) -> i32 {
     (h*3600+m*60+s)*1000+ms
 }
 
-fn main() -> Result<(), Error> {
-
-    let args: Vec<String> = env::args().collect();
-
-    let offset_expr = &args[1];
-    let input_fn = &args[2];
-
-    let mut content = HashMap::new();
-
+fn load_srt_file(input_fn: &str, ctn: &mut HashMap<i32, SRTSubtitle>) -> Result<(), Error> {
     let input = File::open(input_fn)?;
     let reader = BufReader::new(input);
 
@@ -79,7 +71,6 @@ fn main() -> Result<(), Error> {
             SRTState::Timestamp => {
                 let l = line?;
                 if l.trim().chars().nth(2).unwrap() == ':' {
-                    //TODO:
                     let str = l.trim();
                     let v: Vec<&str> = str.split("-->").collect();
                     start_ms = str2ts(v[0]);
@@ -101,12 +92,12 @@ fn main() -> Result<(), Error> {
                     text.push_str(&l);
                 }
                 else {
-                    if content.contains_key(&num) {
+                    if ctn.contains_key(&num) {
                         println!("Found dumplicated number: {}", num);
 //                        Err(error"));
                     }
 
-                    content.insert(num, SRTSubtitle {
+                    ctn.insert(num, SRTSubtitle {
                         num: num,
                         start_ms: start_ms,
                         end_ms: end_ms,
@@ -122,13 +113,27 @@ fn main() -> Result<(), Error> {
     }
 
     if text.len() > 0 {
-        content.insert(num, SRTSubtitle {
+        ctn.insert(num, SRTSubtitle {
             num: num,
             start_ms: start_ms,
             end_ms: end_ms,
             text: text.clone(),
         });
     }
+
+    Ok(())
+}
+
+fn main() -> Result<(), Error> {
+
+    let args: Vec<String> = env::args().collect();
+
+    let offset_expr = &args[1];
+    let input_fn = &args[2];
+
+    let mut content = HashMap::new();
+
+    load_srt_file(&input_fn, &mut content).unwrap();
 
     let mut sorted_keys = content.keys().copied().collect::<Vec<_>>();
     sorted_keys.sort();
