@@ -1,37 +1,36 @@
 extern crate regex;
 
+use std::path::Path;
 use std::fs::File;
 use std::io::{prelude::*, BufReader, Error};
-use std::collections::HashMap;
 use std::env;
 use std::str::FromStr;
 
-//use regex::Regex;
+use lazy_static::lazy_static;
+use regex::{Regex, Captures};
 
-#[derive(Debug)]
-struct SRTSubtitle {
-    num: i32,
-    start_ms: i32,
-    end_ms: i32,
-    text: String,
+#[macro_use]
+extern crate lazy_static;
+
+lazy_static! {
+    static ref SRTREGEX: Regex = Regex::new(
+        r"(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)(.*)"
+    ).unwrap();
+    static ref ASSREGEX: Regex = Regex::new(
+        r"(Dialogue\s*:.*),(\d+:\d+:\d+.\d+),(\d+:\d+:\d+.\d+),(.*)"
+    ).unwrap();
 }
 
-enum SRTState {
-    Number,
-    Timestamp,
-    Content,
-}
-
-fn ts2str(ts: i32) -> String {
+fn ts2str(ts: i32, ms_marker: char) -> String {
     let ms = ts%1000;
     let s = ts/1000%60;
     let m = ts/1000/60%60;
     let h = ts/1000/60/60;
-    format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
+    format!("{:02}:{:02}:{:02}{}{:03}", h, m, s, ms_marker, ms)
 }
 
 fn str2ts(t: &str) -> i32 {
-    let v: Vec<&str> = t.trim().split(&[':', ',']).collect();
+    let v: Vec<&str> = t.trim().split(&[':', ',', '.']).collect();
     let h = i32::from_str(v[0]).unwrap();
     let m = i32::from_str(v[1]).unwrap();
     let s = i32::from_str(v[2]).unwrap();
@@ -43,87 +42,60 @@ fn str2ts(t: &str) -> i32 {
     (h*3600+m*60+s)*1000+ms
 }
 
-fn load_srt_file(input_fn: &str, ctn: &mut HashMap<i32, SRTSubtitle>) -> Result<(), Error> {
+fn process_srt_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), Error> {
     let input = File::open(input_fn)?;
     let reader = BufReader::new(input);
+    let mut is_line1 = true;
+    let mut offset_val = offset;
 
-    let mut num = 0;
-    let mut start_ms = 0;
-    let mut end_ms = 0;
-    let mut text = String::new();
-
-    let mut state = SRTState::Number;
     for line in reader.lines() {
-        match state {
-            SRTState::Number => {
-                let l = line?;
-                if l.trim().is_empty() {
-                    state = SRTState::Number;
-                }
-                else {
-                    assert!(l.starts_with(char::is_numeric));
-                    num = i32::from_str(l.trim()).unwrap();
-
-                    state = SRTState::Timestamp;
-                }
-            },
-
-            SRTState::Timestamp => {
-                let l = line?;
-                if l.trim().chars().nth(2).unwrap() == ':' {
-                    let str = l.trim();
-                    let v: Vec<&str> = str.split("-->").collect();
-                    start_ms = str2ts(v[0]);
-                    end_ms = str2ts(v[1]);
-
-                    state = SRTState::Content;
-                }
-                else {
-                    println!("Find invalid timestamp syntax!");
-                }
-            },
-
-            SRTState::Content => {
-                let l = line?;
-                if l.len() > 0 {
-                    if text.len() > 0 {
-                        text.push_str("\n");
-                    }
-                    text.push_str(&l);
-                }
-                else {
-                    if ctn.contains_key(&num) {
-                        println!("Found dumplicated number: {}", num);
-//                        Err(error"));
-                    }
-
-                    ctn.insert(num, SRTSubtitle {
-                        num: num,
-                        start_ms: start_ms,
-                        end_ms: end_ms,
-                        text: String::from(&text),
-                    });
-
-                    text.clear();
-
-                    state = SRTState::Number;
-                }
-            },
-        }
-    }
-
-    if text.len() > 0 {
-        ctn.insert(num, SRTSubtitle {
-            num: num,
-            start_ms: start_ms,
-            end_ms: end_ms,
-            text: text.clone(),
+        let l = line?;
+        let new_l = SRTREGEX.replace(&l, |caps: &Captures| {
+            let start_ts = str2ts(&caps[1]);
+            let end_ts   = str2ts(&caps[2]);
+            if use_newts && is_line1 {
+                offset_val = offset - start_ts;
+                is_line1 = false;
+            }
+            format!("{} --> {}{}",
+                ts2str(start_ts+offset_val, ','),
+                ts2str(end_ts+offset_val, ','),
+                &caps[3]
+            )
         });
+        println!("{}", new_l);
     }
 
     Ok(())
 }
 
+fn process_ass_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), Error> {
+    let input = File::open(input_fn)?;
+    let reader = BufReader::new(input);
+    let mut is_line1 = true;
+    let mut offset_val = offset;
+
+    for line in reader.lines() {
+        let l = line?;
+        let new_l = ASSREGEX.replace(&l, |caps: &Captures| {
+            let start_ts = str2ts(&caps[2]);
+            let end_ts   = str2ts(&caps[3]);
+            if use_newts && is_line1 {
+                offset_val = offset - start_ts;
+                is_line1 = false;
+            }
+            format!("{},{},{},{}",
+                &caps[1],
+                ts2str(start_ts+offset_val, '.'),
+                ts2str(end_ts+offset_val, '.'),
+                &caps[4]
+            )
+        });
+        println!("{}", new_l);
+    }
+
+    Ok(())
+}
 fn main() -> Result<(), Error> {
 
     let args: Vec<String> = env::args().collect();
@@ -131,27 +103,19 @@ fn main() -> Result<(), Error> {
     let offset_expr = &args[1];
     let input_fn = &args[2];
 
-    let mut content = HashMap::new();
-
-    load_srt_file(&input_fn, &mut content).unwrap();
-
-    let mut sorted_keys = content.keys().copied().collect::<Vec<_>>();
-    sorted_keys.sort();
-
-    let old_1st_ts = content[&sorted_keys[0]].start_ms;
     let offset: i32;
+    let mut use_newts = false;
     match &offset_expr[0..1] {
-        "+" => { offset = str2ts(&offset_expr[1..]) *  1; }
-        "-" => { offset = str2ts(&offset_expr[1..]) * -1; }
-         _  => { offset = str2ts(&offset_expr) - old_1st_ts; }
+        "+" => { offset = str2ts(&offset_expr[1..]) *  1; },
+        "-" => { offset = str2ts(&offset_expr[1..]) * -1; },
+         _  => { offset = str2ts(&offset_expr); use_newts = true; },
     }
 
-    for key in sorted_keys {
-        let v= &content[&key];
-        println!(
-            "{}\n{} --> {}\n{}\n",
-            v.num, ts2str(v.start_ms+offset), ts2str(v.end_ms+offset), v.text
-        );
+    let ext = Path::new(&input_fn).extension().unwrap().to_str().unwrap();
+    match ext {
+        "srt" => { process_srt_file(input_fn, offset, use_newts).expect("Error processing SRT file."); },
+        "ass" => { process_ass_file(input_fn, offset, use_newts).expect("Error processing ASS file."); },
+          _   => { println!("Unsupported file format."); },
     }
 
     Ok(())

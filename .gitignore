@@ -11,3 +11,4 @@ Cargo.lock
 
 # All .srt file for testing
 *.srt
+*.ass
