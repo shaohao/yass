@@ -1,25 +1,11 @@
-extern crate regex;
-
 use std::path::Path;
 use std::fs::File;
 use std::io::{prelude::*, BufReader, Error};
-use std::env;
 use std::str::FromStr;
 
-use lazy_static::lazy_static;
-use regex::{Regex, Captures};
+use clap::{CommandFactory, ErrorKind, Parser};
+use lazy_regex::{regex, Captures};
 
-#[macro_use]
-extern crate lazy_static;
-
-lazy_static! {
-    static ref SRTREGEX: Regex = Regex::new(
-        r"(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)(.*)"
-    ).unwrap();
-    static ref ASSREGEX: Regex = Regex::new(
-        r"(Dialogue\s*:.*),(\d+:\d+:\d+.\d+),(\d+:\d+:\d+.\d+),(.*)"
-    ).unwrap();
-}
 
 fn ts2str(ts: i32, ms_marker: char) -> String {
     let ms = ts%1000;
@@ -50,19 +36,20 @@ fn process_srt_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), 
 
     for line in reader.lines() {
         let l = line?;
-        let new_l = SRTREGEX.replace(&l, |caps: &Captures| {
-            let start_ts = str2ts(&caps[1]);
-            let end_ts   = str2ts(&caps[2]);
-            if use_newts && is_line1 {
-                offset_val = offset - start_ts;
-                is_line1 = false;
-            }
-            format!("{} --> {}{}",
-                ts2str(start_ts+offset_val, ','),
-                ts2str(end_ts+offset_val, ','),
-                &caps[3]
-            )
-        });
+        let new_l = regex!(r"(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)(.*)")
+            .replace(&l, |caps: &Captures| {
+                let start_ts = str2ts(&caps[1]);
+                let end_ts   = str2ts(&caps[2]);
+                if use_newts && is_line1 {
+                    offset_val = offset - start_ts;
+                    is_line1 = false;
+                }
+                format!("{} --> {}{}",
+                    ts2str(start_ts+offset_val, ','),
+                    ts2str(end_ts+offset_val, ','),
+                    &caps[3]
+                )
+            });
         println!("{}", new_l);
     }
 
@@ -77,31 +64,65 @@ fn process_ass_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), 
 
     for line in reader.lines() {
         let l = line?;
-        let new_l = ASSREGEX.replace(&l, |caps: &Captures| {
-            let start_ts = str2ts(&caps[2]);
-            let end_ts   = str2ts(&caps[3]);
-            if use_newts && is_line1 {
-                offset_val = offset - start_ts;
-                is_line1 = false;
-            }
-            format!("{},{},{},{}",
-                &caps[1],
-                ts2str(start_ts+offset_val, '.'),
-                ts2str(end_ts+offset_val, '.'),
-                &caps[4]
-            )
-        });
+        let new_l = regex!(r"(Dialogue\s*:.*),(\d+:\d+:\d+.\d+),(\d+:\d+:\d+.\d+),(.*)")
+            .replace(&l, |caps: &Captures| {
+                let start_ts = str2ts(&caps[2]);
+                let end_ts   = str2ts(&caps[3]);
+                if use_newts && is_line1 {
+                    offset_val = offset - start_ts;
+                    is_line1 = false;
+                }
+                format!("{},{},{},{}",
+                    &caps[1],
+                    ts2str(start_ts+offset_val, '.'),
+                    ts2str(end_ts+offset_val, '.'),
+                    &caps[4]
+                )
+            });
         println!("{}", new_l);
     }
 
     Ok(())
 }
+
+#[derive(Parser)]
+#[clap(name = "YASS")]
+#[clap(bin_name = "yass")]
+#[clap(author = "Shao Hao. <shaohao@outlook.com>")]
+#[clap(version = "1.0")]
+#[clap(about = "Yet Another Subtitle Sync", long_about = None)]
+struct Cli {
+    /// Use +hh:mm:ss,ms/-hh:mm:ss,ms to adjust the offset.
+    /// Use hh:mm:ss,ms to fix the first dialogue and adjust the remains.
+    offset: String,
+
+    #[clap(parse(from_os_str))]
+    /// Subtitle file. Only support .srt or .ass format.
+    input_file: std::path::PathBuf,
+}
+
+
 fn main() -> Result<(), Error> {
 
-    let args: Vec<String> = env::args().collect();
+    let cli = Cli::parse();
 
-    let offset_expr = &args[1];
-    let input_fn = &args[2];
+    let offset_expr = cli.offset;
+    if ! regex!(r"\d+:\d+:\d+(,\d+)?").is_match(&offset_expr) {
+        let mut cmd = Cli::command();
+        cmd.error(
+            ErrorKind::InvalidValue,
+            "The valid offset format: +01:02:03, -01:02:03,04 or 01:02:03,04",
+        ).exit();
+    }
+
+    let input_file: &Path = cli.input_file.as_path();
+    if ! input_file.is_file() {
+        let mut cmd = Cli::command();
+        cmd.error(
+            ErrorKind::Io,
+            format!("'{}' is NOT a vaild filename", input_file.to_str().unwrap()),
+        ).exit();
+    }
 
     let offset: i32;
     let mut use_newts = false;
@@ -111,11 +132,12 @@ fn main() -> Result<(), Error> {
          _  => { offset = str2ts(&offset_expr); use_newts = true; },
     }
 
-    let ext = Path::new(&input_fn).extension().unwrap().to_str().unwrap();
+    let ext = input_file.extension().unwrap().to_str().unwrap();
+    let input_fn = input_file.to_str().unwrap();
     match ext {
-        "srt" => { process_srt_file(input_fn, offset, use_newts).expect("Error processing SRT file."); },
-        "ass" => { process_ass_file(input_fn, offset, use_newts).expect("Error processing ASS file."); },
-          _   => { println!("Unsupported file format."); },
+        "srt" => { process_srt_file(&input_fn, offset, use_newts).expect("Error processing SRT file."); },
+        "ass" => { process_ass_file(&input_fn, offset, use_newts).expect("Error processing ASS file."); },
+          _   => { println!("Unsupported file format: .{}", ext); },
     }
 
     Ok(())
