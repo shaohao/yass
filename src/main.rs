@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::fs::File;
-use std::io::{prelude::*, BufReader, Error};
+use std::io::{prelude::*, stdout, BufReader, BufWriter, Write, Error};
 use std::str::FromStr;
 
 use clap::{CommandFactory, ErrorKind, Parser};
@@ -28,8 +28,7 @@ fn str2ts(t: &str) -> i32 {
     (h*3600+m*60+s)*1000+ms
 }
 
-fn process_srt_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), Error> {
-    let input = File::open(input_fn)?;
+fn process_srt_file(input: &File, offset: i32, output: &mut BufWriter< Box<dyn Write> >, use_newts: bool) -> Result<(), Error> {
     let reader = BufReader::new(input);
     let mut is_line1 = true;
     let mut offset_val = offset;
@@ -50,14 +49,13 @@ fn process_srt_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), 
                     &caps[3]
                 )
             });
-        println!("{}", new_l);
+        writeln!(output, "{}", new_l)?;
     }
 
     Ok(())
 }
 
-fn process_ass_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), Error> {
-    let input = File::open(input_fn)?;
+fn process_ass_file(input: &File, offset: i32, output: &mut BufWriter< Box<dyn Write> >, use_newts: bool) -> Result<(), Error> {
     let reader = BufReader::new(input);
     let mut is_line1 = true;
     let mut offset_val = offset;
@@ -79,7 +77,7 @@ fn process_ass_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), 
                     &caps[4]
                 )
             });
-        println!("{}", new_l);
+        writeln!(output, "{}", new_l)?;
     }
 
     Ok(())
@@ -94,11 +92,16 @@ fn process_ass_file(input_fn: &str, offset: i32, use_newts: bool) -> Result<(), 
 struct Cli {
     /// Use +hh:mm:ss,ms/-hh:mm:ss,ms to adjust the offset.
     /// Use hh:mm:ss,ms to fix the first dialogue and adjust the remains.
+    #[clap(allow_hyphen_values(true))]
     offset: String,
 
     #[clap(parse(from_os_str))]
     /// Subtitle file. Only support .srt or .ass format.
     input_file: std::path::PathBuf,
+
+    #[clap(short, parse(from_os_str))]
+    /// Output file (Optional, leave blank means to stdout)
+    output_file: Option<std::path::PathBuf>,
 }
 
 
@@ -106,24 +109,30 @@ fn main() -> Result<(), Error> {
 
     let cli = Cli::parse();
 
+    // Check input args
     let offset_expr = cli.offset;
-    if ! regex!(r"\d+:\d+:\d+(,\d+)?").is_match(&offset_expr) {
+    if ! regex!(r"[+\-]?\d+:\d+:\d+(,\d+)?").is_match(&offset_expr) {
         let mut cmd = Cli::command();
         cmd.error(
             ErrorKind::InvalidValue,
             "The valid offset format: +01:02:03, -01:02:03,04 or 01:02:03,04",
         ).exit();
     }
-
-    let input_file: &Path = cli.input_file.as_path();
-    if ! input_file.is_file() {
+    let input_path: &Path = cli.input_file.as_path();
+    if ! input_path.is_file() {
         let mut cmd = Cli::command();
         cmd.error(
             ErrorKind::Io,
-            format!("'{}' is NOT a vaild filename", input_file.to_str().unwrap()),
+            format!("'{}' is NOT a vaild filename", input_path.to_str().unwrap()),
         ).exit();
     }
 
+    let mut output = BufWriter::new(match cli.output_file {
+        Some(x) => Box::new(File::create(x).unwrap()) as Box<dyn Write>,
+        None    => Box::new(stdout()) as Box<dyn Write>,
+    });
+
+    // Calculate the offset
     let offset: i32;
     let mut use_newts = false;
     match &offset_expr[0..1] {
@@ -132,11 +141,15 @@ fn main() -> Result<(), Error> {
          _  => { offset = str2ts(&offset_expr); use_newts = true; },
     }
 
-    let ext = input_file.extension().unwrap().to_str().unwrap();
-    let input_fn = input_file.to_str().unwrap();
+    // Prepare/Open the input file
+    let input_fn = input_path.to_str().unwrap();
+    let input = File::open(input_fn)?;
+
+    // Process the sync based on file format
+    let ext = input_path.extension().unwrap().to_str().unwrap();
     match ext {
-        "srt" => { process_srt_file(&input_fn, offset, use_newts).expect("Error processing SRT file."); },
-        "ass" => { process_ass_file(&input_fn, offset, use_newts).expect("Error processing ASS file."); },
+        "srt" => { process_srt_file(&input, offset, &mut output, use_newts).expect("Error processing SRT file."); },
+        "ass" => { process_ass_file(&input, offset, &mut output, use_newts).expect("Error processing ASS file."); },
           _   => { println!("Unsupported file format: .{}", ext); },
     }
 
