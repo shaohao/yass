@@ -1,9 +1,9 @@
 use std::path::Path;
 use std::fs::File;
-use std::io::{prelude::*, stdout, BufReader, BufWriter, Write, Error};
+use std::io::{prelude::*, stdout, BufReader, BufWriter, Write, Error, ErrorKind};
 use std::str::FromStr;
 
-use clap::{CommandFactory, ErrorKind, Parser};
+use clap::{CommandFactory, Parser};
 use lazy_regex::{regex, Captures};
 
 
@@ -114,7 +114,7 @@ fn main() -> Result<(), Error> {
     if ! regex!(r"[+\-]?\d+:\d+:\d+(,\d+)?").is_match(&offset_expr) {
         let mut cmd = Cli::command();
         cmd.error(
-            ErrorKind::InvalidValue,
+            clap::ErrorKind::InvalidValue,
             "The valid offset format: +01:02:03, -01:02:03,04 or 01:02:03,04",
         ).exit();
     }
@@ -122,7 +122,7 @@ fn main() -> Result<(), Error> {
     if ! input_path.is_file() {
         let mut cmd = Cli::command();
         cmd.error(
-            ErrorKind::Io,
+            clap::ErrorKind::Io,
             format!("'{}' is NOT a vaild filename", input_path.to_str().unwrap()),
         ).exit();
     }
@@ -142,15 +142,14 @@ fn main() -> Result<(), Error> {
     }
 
     // Prepare/Open the input file
-    let input_fn = input_path.to_str().unwrap();
-    let input = File::open(input_fn)?;
+    let input = File::open(input_path)?;
 
     // Process the sync based on file format
     let ext = input_path.extension().unwrap().to_str().unwrap();
     match ext {
         "srt" => { process_srt_file(&input, offset, &mut output, use_newts).expect("Error processing SRT file."); },
         "ass" => { process_ass_file(&input, offset, &mut output, use_newts).expect("Error processing ASS file."); },
-          _   => { println!("Unsupported file format: .{}", ext); },
+          _   => { return Err(Error::new(ErrorKind::Other, format!("Unsupported file format: .{}", ext))); },
     }
 
     Ok(())
