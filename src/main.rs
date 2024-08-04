@@ -7,22 +7,39 @@ use clap::{CommandFactory, Parser};
 use lazy_regex::{regex, Captures};
 
 
-fn ts2str(ts: i32, ms_marker: char) -> String {
+fn ms2str(ts: i32, ms_marker: char) -> String {
     let ms = ts%1000;
     let s = ts/1000%60;
     let m = ts/1000/60%60;
     let h = ts/1000/60/60;
-    format!("{:02}:{:02}:{:02}{}{:03}", h, m, s, ms_marker, ms)
+    // Format milliseconds appropriately based on marker
+    if ms_marker == ',' {
+        format!("{:02}:{:02}:{:02},{:03}", h, m, s, ms)
+    } else if ms_marker == '.' {
+        // Convert milliseconds to centiseconds if the marker is '.'
+        let cs = ms / 10;
+        format!("{:02}:{:02}:{:02}.{:02}", h, m, s, cs)
+    } else {
+        // Default case, just in case ms_marker is neither ',' nor '.'
+        format!("{:02}:{:02}:{:02}{}{:03}", h, m, s, ms_marker, ms)
+    }
 }
 
-fn str2ts(t: &str) -> i32 {
+fn str2ms(t: &str) -> i32 {
     let v: Vec<&str> = t.trim().split(&[':', ',', '.']).collect();
     let h = i32::from_str(v[0]).unwrap();
     let m = i32::from_str(v[1]).unwrap();
     let s = i32::from_str(v[2]).unwrap();
     let mut ms = 0;
     if v.len() > 3 {
-        ms = i32::from_str(v[3]).unwrap();
+        let fraction = v[3];
+        if fraction.len() == 3 {
+            // Milliseconds
+            ms = i32::from_str(fraction).unwrap();
+        } else if fraction.len() == 2 {
+            // Centiseconds
+            ms = i32::from_str(fraction).unwrap() * 10;
+        }
     }
 
     (h*3600+m*60+s)*1000+ms
@@ -37,15 +54,15 @@ fn process_srt_file(input: &File, offset: i32, output: &mut BufWriter< Box<dyn W
         let l = line?;
         let new_l = regex!(r"(\d+:\d+:\d+[.,]\d+)\s+-->\s+(\d+:\d+:\d+[.,]\d+)(.*)")
             .replace(&l, |caps: &Captures| {
-                let start_ts = str2ts(&caps[1]);
-                let end_ts   = str2ts(&caps[2]);
+                let start_ms = str2ms(&caps[1]);
+                let end_ms   = str2ms(&caps[2]);
                 if use_newts && is_line1 {
-                    offset_val = offset - start_ts;
+                    offset_val = offset - start_ms;
                     is_line1 = false;
                 }
                 format!("{} --> {}{}",
-                    ts2str(start_ts+offset_val, ','),
-                    ts2str(end_ts+offset_val, ','),
+                    ms2str(start_ms+offset_val, ','),
+                    ms2str(end_ms+offset_val, ','),
                     &caps[3]
                 )
             });
@@ -64,16 +81,16 @@ fn process_ass_file(input: &File, offset: i32, output: &mut BufWriter< Box<dyn W
         let l = line?;
         let new_l = regex!(r"(Dialogue\s*:.*),(\d+:\d+:\d+.\d+),(\d+:\d+:\d+.\d+),(.*)")
             .replace(&l, |caps: &Captures| {
-                let start_ts = str2ts(&caps[2]);
-                let end_ts   = str2ts(&caps[3]);
+                let start_ms = str2ms(&caps[2]);
+                let end_ms   = str2ms(&caps[3]);
                 if use_newts && is_line1 {
-                    offset_val = offset - start_ts;
+                    offset_val = offset - start_ms;
                     is_line1 = false;
                 }
                 format!("{},{},{},{}",
                     &caps[1],
-                    ts2str(start_ts+offset_val, '.'),
-                    ts2str(end_ts+offset_val, '.'),
+                    ms2str(start_ms+offset_val, '.'),
+                    ms2str(end_ms+offset_val, '.'),
                     &caps[4]
                 )
             });
