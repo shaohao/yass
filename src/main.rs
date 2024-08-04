@@ -153,9 +153,9 @@ fn main() -> Result<(), Error> {
     let offset: i32;
     let mut use_newts = false;
     match &offset_expr[0..1] {
-        "+" => { offset = str2ts(&offset_expr[1..]) *  1; },
-        "-" => { offset = str2ts(&offset_expr[1..]) * -1; },
-         _  => { offset = str2ts(&offset_expr); use_newts = true; },
+        "+" => { offset = str2ms(&offset_expr[1..]) *  1; },
+        "-" => { offset = str2ms(&offset_expr[1..]) * -1; },
+         _  => { offset = str2ms(&offset_expr); use_newts = true; },
     }
 
     // Prepare/Open the input file
