@@ -104,7 +104,7 @@ fn process_ass_file(input: &File, offset: i32, output: &mut BufWriter< Box<dyn W
 #[clap(name = "YASS")]
 #[clap(bin_name = "yass")]
 #[clap(author = "Shao Hao. <shaohao@outlook.com>")]
-#[clap(version = "1.0")]
+#[clap(version = "1.1")]
 #[clap(about = "Yet Another Subtitle Sync", long_about = None)]
 struct Cli {
     /// Use +hh:mm:ss,ms/-hh:mm:ss,ms to adjust the offset.
