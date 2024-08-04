@@ -56,7 +56,7 @@ jobs:
             cp "../target/${{ matrix.target }}/release/yass.exe" ./
             7z a "${{ matrix.archive-name }}" yass.exe
           else
-            cp "../target/${{ matrix.target }}/release/sgf-render" ./
+            cp "../target/${{ matrix.target }}/release/yass" ./
             tar -czf "${{ matrix.archive-name }}" yass
           fi
       - name: Upload archive
