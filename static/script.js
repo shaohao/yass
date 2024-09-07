@@ -12,7 +12,7 @@ new Vue({
         },
         async syncSubtitle() {
             if (!this.subtitleFile) {
-                alert('请选择字幕文件');
+                alert('Please select a subtitle file');
                 return;
             }
 
@@ -28,13 +28,13 @@ new Vue({
                 });
 
                 if (!response.ok) {
-                    throw new Error('同步失败');
+                    throw new Error('Sync failed');
                 }
 
                 const result = await response.json();
                 this.result = result.content;
             } catch (error) {
-                alert('错误：' + error.message);
+                alert('Error: ' + error.message);
             }
         },
         downloadResult() {

@@ -11,17 +11,23 @@
     <div id="app" class="container">
         <h1>Subtitle Sync Tool</h1>
         <form @submit.prevent="syncSubtitle">
-            <label for="offset">Offset:</label>
-            <input type="text" id="offset" v-model="offset" placeholder="+/-HH:MM:SS,ms or HH:MM:SS,ms" required>
+            <div class="form-group">
+                <label for="offset">Offset:</label>
+                <input type="text" id="offset" v-model="offset" placeholder="+/-HH:MM:SS,ms or HH:MM:SS,ms" required>
+            </div>
             
-            <label for="file-type">File Type:</label>
-            <select id="file-type" v-model="fileType" required>
-                <option value="srt">SRT</option>
-                <option value="ass">ASS</option>
-            </select>
+            <div class="form-group">
+                <label for="file-type">File Type:</label>
+                <select id="file-type" v-model="fileType" required>
+                    <option value="srt">SRT</option>
+                    <option value="ass">ASS</option>
+                </select>
+            </div>
             
-            <label for="subtitle-file">Subtitle File:</label>
-            <input type="file" id="subtitle-file" @change="handleFileUpload" required>
+            <div class="form-group">
+                <label for="subtitle-file">Subtitle File:</label>
+                <input type="file" id="subtitle-file" @change="handleFileUpload" required>
+            </div>
             
             <button type="submit">Sync</button>
         </form>
